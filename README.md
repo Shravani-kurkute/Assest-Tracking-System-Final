@@ -397,6 +397,3 @@ Access is filtered by role and, for several workflows, by the user's department 
 - Replace startup schema checks with managed migrations.
 - Provide a mobile application for faster field scanning.
 
-## License
-
-This project is prepared for educational, portfolio, and project-submission use.
