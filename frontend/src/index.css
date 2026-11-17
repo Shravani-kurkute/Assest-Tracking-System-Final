@@ -1,0 +1,203 @@
+/* Shared Tailwind component styles used across the dashboard UI. */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans antialiased;
+  }
+}
+
+@layer components {
+  .input-field {
+    @apply w-full rounded-lg border border-gray-200 bg-white px-4 py-3
+           text-sm text-gray-900 shadow-sm placeholder-gray-400
+           focus:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-50
+           transition-all duration-200 disabled:cursor-not-allowed
+           disabled:bg-gray-50 disabled:text-gray-400;
+  }
+
+  .btn-primary {
+    @apply cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium
+           text-white shadow-sm transition-all duration-200
+           hover:bg-blue-700
+           active:bg-blue-800
+           disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0;
+  }
+
+  .btn-secondary {
+    @apply rounded-lg bg-gray-100 px-4 py-2.5 text-sm
+           font-medium text-gray-700 transition-all duration-200
+           hover:bg-gray-200 active:bg-gray-300;
+  }
+
+  .btn-danger {
+    @apply rounded-xl bg-rose-600 px-4 py-3 text-sm font-medium text-white
+           shadow-sm transition-all duration-200 hover:-translate-y-0.5
+           hover:bg-rose-700 hover:shadow-md;
+  }
+
+  .card {
+    @apply rounded-xl bg-white p-6 shadow-sm transition-all duration-200;
+  }
+
+  .card-hover {
+    @apply card cursor-pointer hover:-translate-y-1 hover:shadow-lg;
+  }
+
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .badge-green {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .badge-red {
+    @apply bg-rose-100 text-rose-700;
+  }
+
+  .badge-yellow {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .badge-blue {
+    @apply bg-sky-100 text-sky-700;
+  }
+
+  .badge-purple {
+    @apply bg-purple-100 text-purple-700;
+  }
+
+  .badge-slate {
+    @apply bg-slate-200 text-slate-700;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium
+           text-gray-600 transition-all duration-150;
+  }
+
+  .sidebar-link.active {
+    @apply bg-gray-100 text-gray-900;
+  }
+
+  .table-header {
+    @apply px-5 py-3.5 text-left text-xs font-semibold uppercase tracking-[0.18em]
+           text-gray-500;
+  }
+
+  .table-cell {
+    @apply px-4 py-3 text-sm text-gray-700 align-top;
+  }
+
+  .table-row {
+    @apply border-b border-gray-100 transition-colors duration-150 hover:bg-gray-50;
+  }
+
+  .page-title {
+    @apply text-2xl font-semibold tracking-tight text-gray-900;
+  }
+
+  .section-title {
+    @apply text-xl font-semibold text-gray-900;
+  }
+
+  .status-badge {
+    @apply inline-flex rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .status-available {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .status-assigned {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .status-maintenance {
+    @apply bg-rose-100 text-rose-700;
+  }
+
+  .status-returned {
+    @apply bg-slate-200 text-slate-700;
+  }
+
+  .status-pending {
+    @apply bg-amber-100 text-amber-700;
+  }
+
+  .status-approved {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .status-rejected {
+    @apply bg-rose-100 text-rose-700;
+  }
+
+  .status-in-progress {
+    @apply bg-sky-100 text-sky-700;
+  }
+
+  .status-completed {
+    @apply bg-emerald-100 text-emerald-700;
+  }
+
+  .feedback-panel {
+    @apply rounded-2xl border px-5 py-4 text-sm;
+  }
+
+  .feedback-error {
+    @apply feedback-panel border-rose-200 bg-rose-50 text-rose-700;
+  }
+
+  .feedback-info {
+    @apply feedback-panel border-blue-200 bg-blue-50 text-blue-700;
+  }
+
+  .empty-state {
+    @apply flex min-h-72 flex-col items-center justify-center px-6 py-10 text-center;
+  }
+
+  .empty-icon {
+    @apply flex h-14 w-14 items-center justify-center rounded-xl bg-gray-100;
+  }
+
+  .loading-panel {
+    @apply card flex min-h-[420px] flex-col items-center justify-center text-center;
+  }
+
+  .loading-spinner {
+    @apply h-12 w-12 animate-spin rounded-full border-4 border-sky-200 border-t-sky-600;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .qr-print-area,
+  .qr-print-area * {
+    visibility: visible;
+  }
+
+  .qr-print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  .qr-no-print {
+    display: none !important;
+  }
+}

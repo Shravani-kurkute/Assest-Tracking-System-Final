@@ -1,0 +1,282 @@
+"""Asset inventory endpoints and asset lifecycle updates."""
+
+from datetime import date
+from math import ceil
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session, joinedload
+
+from app.core.dependencies import get_current_user, require_dept_admin_or_above
+from app.database import get_db
+from app.models.asset import Asset, AssetStatus
+from app.models.assignment import Assignment
+from app.models.maintenance import MaintenanceRequest
+from app.models.user import User, UserRole
+from app.schemas.asset import (
+    AssetCreate,
+    AssetResponse,
+    AssetUpdate,
+    PaginatedAssetResponse,
+)
+
+router = APIRouter(prefix="/assets", tags=["Assets"])
+
+
+def _generate_asset_code(db: Session) -> str:
+    last_asset = db.query(Asset).order_by(Asset.id.desc()).first()
+    if not last_asset or not last_asset.asset_id:
+        return "AST-0001"
+
+    try:
+        current_number = int(last_asset.asset_id.split("-")[-1])
+    except (TypeError, ValueError, AttributeError):
+        current_number = last_asset.id
+
+    return f"AST-{current_number + 1:04d}"
+
+
+@router.post("", response_model=AssetResponse, status_code=status.HTTP_201_CREATED)
+def create_asset(
+    payload: AssetCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_dept_admin_or_above),
+):
+    assigned_user = None
+    if payload.assigned_to is not None:
+        assigned_user = db.query(User).filter(User.id == payload.assigned_to).first()
+        if not assigned_user:
+            raise HTTPException(status_code=404, detail="Assigned user not found")
+
+    asset = Asset(
+        asset_id=_generate_asset_code(db),
+        name=payload.name,
+        category=payload.category,
+        description=payload.description,
+        status=payload.status,
+        assigned_to=payload.assigned_to,
+        purchase_date=payload.purchase_date,
+        return_date=payload.return_date,
+    )
+
+    if asset.assigned_to is not None and asset.status == AssetStatus.Available:
+        asset.status = AssetStatus.Assigned
+
+    if asset.status == AssetStatus.Assigned and asset.assigned_to is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Assigned assets must include an assigned_to user",
+        )
+
+    if asset.status != AssetStatus.Assigned:
+        asset.assigned_to = None
+
+    db.add(asset)
+    db.commit()
+    db.refresh(asset)
+
+    if asset.status == AssetStatus.Assigned:
+        assignment = Assignment(
+            asset_id=asset.id,
+            user_id=asset.assigned_to,
+            assigned_date=date.today(),
+            return_date=asset.return_date,
+        )
+        db.add(assignment)
+        db.commit()
+        db.refresh(asset)
+
+    return (
+        db.query(Asset)
+        .options(joinedload(Asset.assigned_user))
+        .filter(Asset.id == asset.id)
+        .first()
+    )
+
+
+@router.get("", response_model=PaginatedAssetResponse)
+def list_assets(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    query = db.query(Asset).options(joinedload(Asset.assigned_user))
+
+    if current_user.role.value not in {"system_admin", "dept_admin"}:
+        query = query.filter(Asset.assigned_to == current_user.id)
+
+    total = query.count()
+    total_pages = max(1, ceil(total / limit)) if total else 1
+    if page > total_pages:
+        page = total_pages
+    offset = (page - 1) * limit
+    items = (
+        query.order_by(Asset.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "data": items,
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+    }
+
+
+@router.get("/lookup", response_model=AssetResponse)
+def lookup_asset_by_code(
+    code: str = Query(..., min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    asset_code = code.strip().upper()
+    if not re.fullmatch(r"AST-\d+", asset_code):
+        raise HTTPException(status_code=400, detail="Invalid asset identifier")
+
+    query = (
+        db.query(Asset)
+        .options(joinedload(Asset.assigned_user))
+        .filter(Asset.asset_id == asset_code)
+    )
+    if current_user.role.value not in {"system_admin", "dept_admin"}:
+        query = query.filter(Asset.assigned_to == current_user.id)
+
+    asset = query.first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    return asset
+
+
+@router.put("/{asset_id}", response_model=AssetResponse)
+def update_asset(
+    asset_id: int,
+    payload: AssetUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    asset = (
+        db.query(Asset)
+        .options(joinedload(Asset.assigned_user))
+        .filter(Asset.id == asset_id)
+        .first()
+    )
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    is_admin = current_user.role in {UserRole.system_admin, UserRole.dept_admin}
+    is_self_return = (
+        data.get("status") == AssetStatus.Available
+        and asset.assigned_to == current_user.id
+        and asset.status == AssetStatus.Assigned
+        and set(data.keys()).issubset({"status", "return_date"})
+    )
+
+    if not is_admin and not is_self_return:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to update this asset",
+        )
+
+    new_assigned_to = data.get("assigned_to", asset.assigned_to)
+    new_status = data.get("status", asset.status)
+
+    if new_assigned_to is not None:
+        assigned_user = db.query(User).filter(User.id == new_assigned_to).first()
+        if not assigned_user:
+            raise HTTPException(status_code=404, detail="Assigned user not found")
+
+    if new_status == AssetStatus.Assigned and new_assigned_to is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Assigned assets must include an assigned_to user",
+        )
+
+    if new_status == AssetStatus.Available and asset.status == AssetStatus.Assigned:
+        active_assignment = (
+            db.query(Assignment)
+            .filter(
+                Assignment.asset_id == asset.id,
+                Assignment.return_date.is_(None),
+            )
+            .order_by(Assignment.assigned_date.desc(), Assignment.id.desc())
+            .first()
+        )
+        effective_return_date = data.get("return_date") or date.today()
+        if active_assignment:
+            active_assignment.return_date = effective_return_date
+        asset.assigned_to = None
+        asset.return_date = effective_return_date
+
+    for field in ("name", "category", "description", "purchase_date"):
+        if field in data:
+            setattr(asset, field, data[field])
+
+    if "status" in data:
+        asset.status = data["status"]
+
+    if "assigned_to" in data and asset.status == AssetStatus.Assigned:
+        asset.assigned_to = data["assigned_to"]
+
+    if "return_date" in data and asset.status != AssetStatus.Available:
+        asset.return_date = data["return_date"]
+
+    if asset.status != AssetStatus.Assigned:
+        asset.assigned_to = None
+
+    db.commit()
+    db.refresh(asset)
+    return (
+        db.query(Asset)
+        .options(joinedload(Asset.assigned_user))
+        .filter(Asset.id == asset.id)
+        .first()
+    )
+
+
+@router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_dept_admin_or_above),
+):
+    asset = db.query(Asset).filter(Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    active_assignment = (
+        db.query(Assignment)
+        .filter(
+            Assignment.asset_id == asset.id,
+            Assignment.return_date.is_(None),
+        )
+        .first()
+    )
+    if active_assignment:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an asset while it is actively assigned",
+        )
+
+    assignment_count = db.query(Assignment).filter(Assignment.asset_id == asset.id).count()
+    if assignment_count:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an asset with assignment history",
+        )
+
+    maintenance_count = (
+        db.query(MaintenanceRequest).filter(MaintenanceRequest.asset_id == asset.id).count()
+    )
+    if maintenance_count:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete an asset with maintenance history",
+        )
+
+    db.delete(asset)
+    db.commit()
